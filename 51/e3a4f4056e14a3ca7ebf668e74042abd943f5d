@@ -1,0 +1,21 @@
+script.user.js
+  s_77112396d6e012::t_30e67f5aaedd2f 4
+  s_77112396d6e012::t_719031f473d413 222-229,231-238
+  s_77112396d6e012::t_13d0dadc5a7047 230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "51e3a4f4056e14a3ca7ebf668e74042abd943f5d",
+  "prompts": {},
+  "sessions": {
+    "s_77112396d6e012": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f4adb4ad-ae32-41eb-aaae-b587bd26750c",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Michael Ross Tarr <mrmrmtarr@gmail.com>"
+    }
+  }
+}
