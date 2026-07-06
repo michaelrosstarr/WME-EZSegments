@@ -4,6 +4,11 @@ An easy way to update segments in WME (Waze Map Editor).
 
 ## Changelogs
 
+### Version 3.4
+```diff
++ Added console debugging logs around the "Set Street To None" city/street resolution to help diagnose reports of the top city not being picked up
+```
+
 ### Version 3.3
 ```diff
 ~ "Set Street To None" now falls back to the map's top city before using an empty city, so a segment without its own city still lands in a real city when one is available

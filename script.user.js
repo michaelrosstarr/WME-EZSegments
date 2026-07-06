@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            WME EZSegments
 // @namespace       https://greasyfork.org/en/scripts/518381-wme-ezsegments
-// @version         3.3
+// @version         3.4
 // @description     Easily update roads
 // @author          https://github.com/michaelrosstarr
 // @include 	    /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
@@ -316,13 +316,22 @@ const applySettingsToSegment = (id, options) => {
         // to the fully empty city if there's no city to use at all.
         if (options.setStreet) {
             const address = wmeSDK.DataModel.Segments.getAddress({ segmentId: id });
-            const city = address.city || wmeSDK.DataModel.Cities.getTopCity() || getEmptyCity();
+            const topCity = wmeSDK.DataModel.Cities.getTopCity();
+            log(`[setStreet] segment ${id}: address.city=${JSON.stringify(address.city)}, topCity=${JSON.stringify(topCity)}`);
+
+            const city = address.city || topCity || getEmptyCity();
+            log(`[setStreet] segment ${id}: chosen city=${JSON.stringify(city)}`);
+
             const street = getEmptyStreet(city.id);
+            log(`[setStreet] segment ${id}: chosen street=${JSON.stringify(street)}`);
 
             wmeSDK.DataModel.Segments.updateAddress({
                 segmentId: id,
                 primaryStreetId: street.id
             });
+
+            const newAddress = wmeSDK.DataModel.Segments.getAddress({ segmentId: id });
+            log(`[setStreet] segment ${id}: address after update=${JSON.stringify(newAddress)}`);
         }
 
         // Unpaved, via the real segment flag attribute (idempotent - always sets it true,
@@ -346,6 +355,7 @@ const handleUpdate = () => {
     log('Updating selected segments');
 
     const options = getOptions();
+    log('Options at time of update: ' + JSON.stringify(options));
     selection.ids.forEach(id => applySettingsToSegment(id, options));
 
     // Autosave
