@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            WME EZSegments
 // @namespace       https://greasyfork.org/en/scripts/518381-wme-ezsegments
-// @version         3.6
+// @version         3.7
 // @description     Easily update roads
 // @author          https://github.com/michaelrosstarr
 // @include 	    /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
@@ -367,26 +367,40 @@ const applyUnpaved = (id, seg, options) => {
     }
 }
 
+// Runs a single attribute update for a segment, in isolation - if it throws (e.g. a
+// transient InvalidStateError on a segment that's still being drawn/connected), the
+// other attributes for this segment still get applied instead of being skipped.
+const safelyApply = (id, label, fn) => {
+    try {
+        fn();
+    } catch (e) {
+        log(`Failed to apply ${label} to segment ${id}: ${e}`);
+    }
+}
+
 // Applies the configured options to a single segment. Shared by the manual
 // "Quick Set Road" trigger (button/shortcut) and the auto-apply-on-create watcher.
 const applySettingsToSegment = (id, options) => {
+    let seg;
     try {
         if (!wmeSDK.DataModel.Segments.hasPermissions({ segmentId: id })) {
             log(`Skipping segment ${id}, no edit permission`);
             return;
         }
 
-        const seg = wmeSDK.DataModel.Segments.getById({ segmentId: id });
-        if (!seg) return;
-
-        applyRoadType(id, seg, options);
-        applyLock(id, options);
-        applySpeed(id, options);
-        applyEmptyStreet(id, options);
-        applyUnpaved(id, seg, options);
+        seg = wmeSDK.DataModel.Segments.getById({ segmentId: id });
     } catch (e) {
-        log(`Failed to apply settings to segment ${id}: ${e}`);
+        log(`Failed to look up segment ${id}: ${e}`);
+        return;
     }
+
+    if (!seg) return;
+
+    safelyApply(id, 'road type', () => applyRoadType(id, seg, options));
+    safelyApply(id, 'lock', () => applyLock(id, options));
+    safelyApply(id, 'speed', () => applySpeed(id, options));
+    safelyApply(id, 'street', () => applyEmptyStreet(id, options));
+    safelyApply(id, 'unpaved', () => applyUnpaved(id, seg, options));
 }
 
 const handleUpdate = () => {

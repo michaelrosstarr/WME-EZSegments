@@ -4,6 +4,11 @@ An easy way to update segments in WME (Waze Map Editor).
 
 ## Changelogs
 
+### Version 3.7
+```diff
+~ Fixed road type/lock/speed/street/unpaved updates for a segment being applied in one shared try/catch - if any single one threw (e.g. a transient InvalidStateError), the rest were silently skipped for that segment. Each is now applied independently so one failure can't block the others
+```
+
 ### Version 3.6
 ```diff
 ~ Fixed "Auto-Apply Settings When a Segment is Created" causing repeated/recursive saves
