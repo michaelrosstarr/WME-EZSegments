@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            WME EZSegments
 // @namespace       https://greasyfork.org/en/scripts/518381-wme-ezsegments
-// @version         3.5
+// @version         3.6
 // @description     Easily update roads
 // @author          https://github.com/michaelrosstarr
 // @include 	    /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
@@ -129,14 +129,50 @@ const WME_EZRoads_init = () => {
 
     observeEditPanel();
     registerQuickSetShortcut();
-    watchForSegmentCreation();
     constructSettings();
 
     log("Completed Init")
 }
 
-// Injects the "Quick Set Road" button into the segment edit panel. There's no SDK hook
-// for extending that panel, so we still need to watch the DOM for it to appear.
+// Segment ids we've already auto-applied settings to, so re-opening/re-rendering the
+// edit panel for the same still-unsaved segment doesn't run the whole thing again.
+const autoAppliedSegmentIds = new Set();
+
+// If "Auto-Apply Settings When a Segment is Created" is on, and the segment(s) just
+// selected are genuinely new (unsaved) and haven't been auto-applied yet, apply the
+// same settings (and respect the autosave toggle) as the manual "Quick Set Road" flow.
+const maybeAutoApplyOnCreate = () => {
+    const options = getOptions();
+    if (!options.applyOnCreate) return;
+
+    const selection = wmeSDK.Editing.getSelection();
+    if (!selection || selection.objectType !== 'segment') return;
+
+    const newIds = selection.ids.filter(id => {
+        if (autoAppliedSegmentIds.has(id)) return false;
+        try {
+            return wmeSDK.DataModel.isNew({ dataModelName: 'segments', objectId: id });
+        } catch (e) {
+            log(`Could not check if segment ${id} is new, skipping: ${e}`);
+            return false;
+        }
+    });
+
+    if (!newIds.length) return;
+
+    newIds.forEach(id => autoAppliedSegmentIds.add(id));
+
+    log('New segment(s) selected, auto-applying settings: ' + newIds.join(', '));
+    newIds.forEach(id => applySettingsToSegment(id, options));
+
+    if (options.autosave) {
+        wmeSDK.Editing.save().then(() => { });
+    }
+}
+
+// Injects the "Quick Set Road" button into the segment edit panel, and triggers
+// auto-apply-on-create. There's no SDK hook for extending that panel, so we still
+// need to watch the DOM for it to appear.
 const observeEditPanel = () => {
     const roadObserver = new MutationObserver((mutations) => {
         mutations.forEach((mutation) => {
@@ -147,6 +183,8 @@ const observeEditPanel = () => {
                     let editSegment = addedNode.querySelector('#segment-edit-general');
                     if (editSegment) {
                         openPanel = editSegment;
+
+                        maybeAutoApplyOnCreate();
 
                         // Check if THIS SPECIFIC panel already has the button
                         const parentElement = editSegment.parentNode;
@@ -204,40 +242,6 @@ const registerQuickSetShortcut = () => {
             }
         });
     }
-}
-
-// Watches for newly-drawn segments and applies the configured settings to them automatically,
-// gated behind the "applyOnCreate" option so it's opt-in.
-const watchForSegmentCreation = () => {
-    wmeSDK.Events.trackDataModelEvents({ dataModelName: 'segments' });
-
-    wmeSDK.Events.on({
-        eventName: 'wme-data-model-objects-added',
-        eventHandler: ({ dataModelName, objectIds }) => {
-            if (dataModelName !== 'segments') return;
-
-            const options = getOptions();
-            if (!options.applyOnCreate) return;
-
-            // trackDataModelEvents also replays already-existing segments (e.g. ones just
-            // loaded into view while panning) as "added". Only react to segments the user
-            // actually just drew and hasn't saved yet, or we'd re-apply settings to every
-            // segment in the map.
-            const newIds = objectIds.filter(id => {
-                try {
-                    return wmeSDK.DataModel.isNew({ dataModelName: 'segments', objectId: id });
-                } catch (e) {
-                    log(`Could not check if segment ${id} is new, skipping: ${e}`);
-                    return false;
-                }
-            });
-
-            if (!newIds.length) return;
-
-            log('New segment(s) created, auto-applying settings: ' + newIds.join(', '));
-            newIds.forEach(id => applySettingsToSegment(id, options));
-        }
-    });
 }
 
 // Finds (or creates) the "empty" city (cityName: '') for the current country, which is how

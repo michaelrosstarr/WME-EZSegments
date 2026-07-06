@@ -4,6 +4,13 @@ An easy way to update segments in WME (Waze Map Editor).
 
 ## Changelogs
 
+### Version 3.6
+```diff
+~ Fixed "Auto-Apply Settings When a Segment is Created" causing repeated/recursive saves
+- Removed the `trackDataModelEvents`/`wme-data-model-objects-added` based auto-apply mechanism, which replayed every already-loaded segment as "added" and could reprocess the same segment repeatedly
++ Auto-apply-on-create now hooks into the same segment edit panel detection used for the "Quick Set Road" button, reuses the existing toggles (including "Autosave on Action") exactly like the manual flow, and tracks which segments it has already applied to so it never repeats itself
+```
+
 ### Version 3.5
 ```diff
 + "Set Street To None" now falls back to the city used by a connected/neighboring segment (the actual suburb the road is in) before falling back to the map's overall top city
