@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            WME EZSegments
 // @namespace       https://greasyfork.org/en/scripts/518381-wme-ezsegments
-// @version         2.1
+// @version         3.0
 // @description     Easily update roads
 // @author          https://github.com/michaelrosstarr
 // @include 	    /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
@@ -18,7 +18,11 @@
 
 const ScriptName = GM_info.script.name;
 const ScriptVersion = GM_info.script.version;
+const STORAGE_KEY = 'WME_EZRoads_Options';
+
 let wmeSDK;
+let openPanel;
+let roadTypeLocalizedNames = {};
 
 const roadTypes = [
     { id: 1, name: 'Street', value: 1 },
@@ -37,7 +41,7 @@ const roadTypes = [
     { id: 14, name: 'Railroad', value: 18 },
     { id: 15, name: 'Runway/Taxiway', value: 19 },
     { id: 16, name: 'Parking Lot Road', value: 20 },
-    { id: 17, name: 'Alley', value: 25 },
+    { id: 17, name: 'Alley', value: 22 },
 ];
 
 const defaultOptions = {
@@ -45,7 +49,7 @@ const defaultOptions = {
     unpaved: false,
     setStreet: false,
     autosave: false,
-    setSpeed: 60,
+    applyOnCreate: false,
     setLock: false,
     updateSpeed: false,
     locks: roadTypes.map(roadType => ({ id: roadType.id, lock: 1 })),
@@ -69,10 +73,23 @@ const log = (message) => {
     }
 }
 
+// Prefer the SDK's localized road type name (respects the editor's language setting),
+// falling back to our hardcoded label if the lookup isn't available for some reason.
+const roadTypeName = (roadType) => roadTypeLocalizedNames[roadType.value] || roadType.name;
+
 window.SDK_INITIALIZED.then(initScript);
 
 function initScript() {
     wmeSDK = getWmeSdk({ scriptId: "wme-ez-segments", scriptName: "EZ Segments" });
+
+    try {
+        wmeSDK.DataModel.Segments.getRoadTypes().forEach(rt => {
+            roadTypeLocalizedNames[rt.id] = rt.localizedName || rt.name;
+        });
+    } catch (e) {
+        log('Could not load localized road type names: ' + e);
+    }
+
     WME_EZRoads_bootstrap();
 }
 
@@ -80,21 +97,13 @@ const getCurrentCountry = () => {
     return wmeSDK.DataModel.Countries.getTopCountry();
 }
 
-const getTopCity = () => {
-    return wmeSDK.DataModel.Cities.getTopCity();
-}
-
-const getAllCities = () => {
-    return wmeSDK.DataModel.Cities.getAll();
-}
-
 const saveOptions = (options) => {
-    window.localStorage.setItem('WME_EZRoads_Options', JSON.stringify(options));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(options));
 }
 
 const getOptions = () => {
 
-    const savedOptions = JSON.parse(window.localStorage.getItem('WME_EZRoads_Options')) || {};
+    const savedOptions = JSON.parse(window.localStorage.getItem(STORAGE_KEY)) || {};
     // Merge saved options with defaults to ensure all expected options exist
     return { ...defaultOptions, ...savedOptions };
 }
@@ -108,18 +117,27 @@ const WME_EZRoads_bootstrap = () => {
         return;
     }
 
-    if (wmeSDK.State.isReady) {
+    if (wmeSDK.State.isReady()) {
         WME_EZRoads_init();
     } else {
-        wmeSDK.Events.once({ eventName: 'wme-ready' }).then(WME_EZRoads_init());
+        wmeSDK.Events.once({ eventName: 'wme-ready' }).then(WME_EZRoads_init);
     }
 }
-
-let openPanel;
 
 const WME_EZRoads_init = () => {
     log("Initing");
 
+    observeEditPanel();
+    registerQuickSetShortcut();
+    watchForSegmentCreation();
+    constructSettings();
+
+    log("Completed Init")
+}
+
+// Injects the "Quick Set Road" button into the segment edit panel. There's no SDK hook
+// for extending that panel, so we still need to watch the DOM for it to appear.
+const observeEditPanel = () => {
     const roadObserver = new MutationObserver((mutations) => {
         mutations.forEach((mutation) => {
             for (let i = 0; i < mutation.addedNodes.length; i++) {
@@ -155,65 +173,89 @@ const WME_EZRoads_init = () => {
     });
 
     roadObserver.observe(document.getElementById('edit-panel'), { childList: true, subtree: true });
+}
 
-    constructSettings();
+// Registers "U" as a native WME shortcut, so it shows up in the editor's shortcut list
+// and WME itself takes care of ignoring the key while the user is typing in a field.
+// Falls back to a manual keydown listener if the SDK can't register it (e.g. key already bound).
+const registerQuickSetShortcut = () => {
+    try {
+        wmeSDK.Shortcuts.createShortcut({
+            shortcutId: 'wme-ezsegments-quick-set',
+            description: 'EZ Segments: Quick Set Road',
+            shortcutKeys: 'U',
+            callback: () => handleUpdate()
+        });
+        log('Registered "U" shortcut via SDK');
+    } catch (e) {
+        log('Could not register SDK shortcut, falling back to manual keydown listener: ' + e);
 
-    document.addEventListener("keydown", (event) => {
-        // Check if the active element is an input or textarea
-        const isInputActive = document.activeElement && (
-            document.activeElement.tagName === 'INPUT' ||
-            document.activeElement.tagName === 'TEXTAREA' ||
-            document.activeElement.contentEditable === 'true' ||
-            document.activeElement.tagName === 'WZ-AUTOCOMPLETE' ||
-            document.activeElement.tagName === 'WZ-TEXTAREA'
-        );
+        document.addEventListener("keydown", (event) => {
+            const isInputActive = document.activeElement && (
+                document.activeElement.tagName === 'INPUT' ||
+                document.activeElement.tagName === 'TEXTAREA' ||
+                document.activeElement.contentEditable === 'true' ||
+                document.activeElement.tagName === 'WZ-AUTOCOMPLETE' ||
+                document.activeElement.tagName === 'WZ-TEXTAREA'
+            );
 
-        log(document.activeElement.tagName);
-        log(isInputActive);
+            if (!isInputActive && event.key.toLowerCase() === "u") {
+                handleUpdate();
+            }
+        });
+    }
+}
 
-        // Only trigger the update if the active element is not an input or textarea
-        if (!isInputActive && event.key.toLowerCase() === "u") {
-            handleUpdate();
+// Watches for newly-drawn segments and applies the configured settings to them automatically,
+// gated behind the "applyOnCreate" option so it's opt-in.
+const watchForSegmentCreation = () => {
+    wmeSDK.Events.trackDataModelEvents({ dataModelName: 'segments' });
+
+    wmeSDK.Events.on({
+        eventName: 'wme-data-model-objects-added',
+        eventHandler: ({ dataModelName, objectIds }) => {
+            if (dataModelName !== 'segments') return;
+
+            const options = getOptions();
+            if (!options.applyOnCreate) return;
+
+            log('New segment(s) created, auto-applying settings: ' + objectIds.join(', '));
+            objectIds.forEach(id => applySettingsToSegment(id, options));
         }
     });
-
-    log("Completed Init")
 }
 
-const getEmptyStreet = () => {
-}
-
+// Finds (or creates) the "empty" city (cityName: '') for the current country, which is how
+// WME represents "no city" for a segment's address.
 const getEmptyCity = () => {
+    const countryId = getCurrentCountry().id;
 
-    return wmeSDK.DataModel.Cities.getCity({
-        cityName: '',
-        countryId: getCurrentCountry().id
-    }) || wmeSDK.DataModel.Cities.addCity({
-        cityName: '',
-        countryId: getCurrentCountry().id
-    });
-
+    return wmeSDK.DataModel.Cities.getCity({ cityName: '', countryId })
+        || wmeSDK.DataModel.Cities.addCity({ cityName: '', countryId });
 }
 
-const handleUpdate = () => {
-    const selection = wmeSDK.Editing.getSelection();
+// Finds (or creates) the "empty" street (streetName: '') for a given city, which is how
+// WME represents "no street" for a segment's address.
+const getEmptyStreet = (cityId) => {
+    return wmeSDK.DataModel.Streets.getStreet({ cityId, streetName: '' })
+        || wmeSDK.DataModel.Streets.addStreet({ cityId, streetName: '' });
+}
 
-    if (!selection || selection.objectType !== 'segment') return;
+// Applies the configured options to a single segment. Shared by the manual
+// "Quick Set Road" trigger (button/shortcut) and the auto-apply-on-create watcher.
+const applySettingsToSegment = (id, options) => {
+    try {
+        if (!wmeSDK.DataModel.Segments.hasPermissions({ segmentId: id })) {
+            log(`Skipping segment ${id}, no edit permission`);
+            return;
+        }
 
-    log('Updating RoadType');
-
-    const options = getOptions();
-
-    selection.ids.forEach(id => {
+        const seg = wmeSDK.DataModel.Segments.getById({ segmentId: id });
+        if (!seg) return;
 
         // Road Type
-        if (options.roadType) {
-
-            const seg = wmeSDK.DataModel.Segments.getById({ segmentId: id });
-
-            if (seg.roadType !== options.roadType) {
-                wmeSDK.DataModel.Segments.updateSegment({ segmentId: id, roadType: options.roadType });
-            }
+        if (options.roadType && seg.roadType !== options.roadType) {
+            wmeSDK.DataModel.Segments.updateSegment({ segmentId: id, roadType: options.roadType });
         }
 
         // Set lock if enabled
@@ -223,16 +265,12 @@ const handleUpdate = () => {
             if (selectedRoad) {
                 const lockSetting = options.locks.find(l => l.id === selectedRoad.id);
                 if (lockSetting) {
-
                     let toLock = lockSetting.lock - 1;
-
                     if (rank < toLock) toLock = rank;
-
-                    log(toLock);
 
                     wmeSDK.DataModel.Segments.updateSegment({
                         segmentId: id,
-                        lockRank: toLock  // Changed from hardcoded value 2 to use the calculated lock level
+                        lockRank: toLock
                     });
                 }
             }
@@ -243,105 +281,61 @@ const handleUpdate = () => {
             const selectedRoad = roadTypes.find(rt => rt.value === options.roadType);
             if (selectedRoad) {
                 const speedSetting = options.speeds.find(s => s.id === selectedRoad.id);
-                log('Selected road for speed: ' + selectedRoad.name);
-                log('Speed setting found: ' + (speedSetting ? 'yes' : 'no'));
 
                 if (speedSetting) {
                     const speedValue = parseInt(speedSetting.speed, 10);
-                    log('Speed value to set: ' + speedValue);
 
-                    // Apply speed if it's a valid number (including 0)
                     if (!isNaN(speedValue) && speedValue >= 0) {
-                        log('Applying speed: ' + speedValue);
                         wmeSDK.DataModel.Segments.updateSegment({
                             segmentId: id,
                             fwdSpeedLimit: speedValue,
                             revSpeedLimit: speedValue
                         });
-                    } else {
-                        log('Not applying speed - invalid value: ' + speedSetting.speed);
                     }
                 }
             }
-        } else {
-            log('Speed updates disabled');
         }
 
-        // Handling the street
+        // Set street to "None", keeping the segment's existing city if it has one
+        // and only falling back to the empty city if it's genuinely cityless.
         if (options.setStreet) {
-
-            let city;
-            let street;
-
-            city = getTopCity() || getEmptyCity();
-
-            street = wmeSDK.DataModel.Streets.getStreet({
-                cityId: city.id,
-                streetName: '',
-            });
-
-            log(`City ${city.id}`);
-
-            if (!street) {
-                street = wmeSDK.DataModel.Streets.addStreet({
-                    streetName: '',
-                    cityId: city.id
-                });
-            }
+            const address = wmeSDK.DataModel.Segments.getAddress({ segmentId: id });
+            const city = address.city || getEmptyCity();
+            const street = getEmptyStreet(city.id);
 
             wmeSDK.DataModel.Segments.updateAddress({
                 segmentId: id,
                 primaryStreetId: street.id
-            })
+            });
         }
 
-        log(options);
-
-        // Updated unpaved handler with fallback
-        if (options.unpaved) {
-            // First try the new method - look for the unpaved chip using the icon class
-            const unpavedIcon = openPanel.querySelector('.w-icon-unpaved-fill');
-            let unpavedToggled = false;
-
-            if (unpavedIcon) {
-                // Click the parent wz-checkable-chip element
-                const unpavedChip = unpavedIcon.closest('wz-checkable-chip');
-                if (unpavedChip) {
-                    unpavedChip.click();
-                    log('Clicked unpaved chip');
-                    unpavedToggled = true;
-                }
-            }
-
-            // If new method failed, try the old method as fallback
-            if (!unpavedToggled) {
-                try {
-                    const wzCheckbox = openPanel.querySelector('wz-checkbox[name="unpaved"]');
-                    if (wzCheckbox) {
-                        const hiddenInput = wzCheckbox.querySelector('input[type="checkbox"][name="unpaved"]');
-                        if (hiddenInput) {
-                            hiddenInput.click();
-                            log('Clicked unpaved checkbox (fallback method)');
-                            unpavedToggled = true;
-                        }
-                    }
-                } catch (e) {
-                    log('Fallback unpaved toggle method failed: ' + e);
-                }
-            }
-
-            if (!unpavedToggled) {
-                log('Could not toggle unpaved setting - no compatible elements found');
-            }
+        // Unpaved, via the real segment flag attribute (idempotent - always sets it true,
+        // unlike the old DOM-click hack which just toggled whatever the current state was).
+        if (options.unpaved && !seg.flagAttributes.unpaved) {
+            wmeSDK.DataModel.Segments.updateSegment({
+                segmentId: id,
+                flagAttributes: { unpaved: true }
+            });
         }
+    } catch (e) {
+        log(`Failed to apply settings to segment ${id}: ${e}`);
+    }
+}
 
-    })
+const handleUpdate = () => {
+    const selection = wmeSDK.Editing.getSelection();
+
+    if (!selection || selection.objectType !== 'segment') return;
+
+    log('Updating selected segments');
+
+    const options = getOptions();
+    selection.ids.forEach(id => applySettingsToSegment(id, options));
 
     // Autosave
     if (options.autosave) {
         wmeSDK.Editing.save().then(() => { });
     }
-
 }
 
 const constructSettings = () => {
@@ -399,7 +393,8 @@ const constructSettings = () => {
         { id: 'autosave', text: 'Autosave on Action', key: 'autosave' },
         { id: 'unpaved', text: 'Set Road as Unpaved', key: 'unpaved' },
         { id: 'setLock', text: 'Set the lock to the level', key: 'setLock' },
-        { id: 'updateSpeed', text: 'Update speed limits', key: 'updateSpeed' }
+        { id: 'updateSpeed', text: 'Update speed limits', key: 'updateSpeed' },
+        { id: 'applyOnCreate', text: 'Auto-Apply Settings When a Segment is Created', key: 'applyOnCreate' }
     ];
 
     // Helper function to create radio buttons
@@ -412,11 +407,11 @@ const constructSettings = () => {
         const div = $(`<div class="ezroads-option">
             <div class="ezroads-radio-container">
                 <input type="radio" id="${id}" name="defaultRoad" ${isChecked ? 'checked' : ''}>
-                <label for="${id}">${roadType.name}</label>
+                <label for="${id}">${roadTypeName(roadType)}</label>
                 <select id="lock-level-${roadType.id}" class="road-lock-level" data-road-id="${roadType.id}" ${!localOptions.setLock ? 'disabled' : ''}>
                     ${locks.map(lock => `<option value="${lock.value}" ${lockSetting.lock === lock.value ? 'selected' : ''}>L${lock.value}</option>`).join('')}
                 </select>
-                <input type="number" id="speed-${roadType.id}" class="road-speed" data-road-id="${roadType.id}" 
+                <input type="number" id="speed-${roadType.id}" class="road-speed" data-road-id="${roadType.id}"
                        value="${speedSetting.speed}" min="-1" ${!localOptions.updateSpeed ? 'disabled' : ''}>
             </div>
         </div>`);
@@ -445,7 +440,7 @@ const constructSettings = () => {
         return div;
     };
 
-    // Helper function to create checkboxess';
+    // Helper function to create checkboxes
     const createCheckbox = (option) => {
         const isChecked = localOptions[option.key];
         const div = $(`<div class="ezroads-option">
@@ -565,8 +560,6 @@ const constructSettings = () => {
             $('.road-speed').prop('disabled', !isChecked);
             log('Speed update option changed to: ' + isChecked);
         });
-
-        // Remove the separate lock levels section
 
         // Reset button section
         const resetButton = $(`<button class="ezroads-reset-button">Reset All Options</button>`);
