@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            WME EZSegments
 // @namespace       https://greasyfork.org/en/scripts/518381-wme-ezsegments
-// @version         3.1
+// @version         3.2
 // @description     Easily update roads
 // @author          https://github.com/michaelrosstarr
 // @include 	    /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
@@ -219,8 +219,23 @@ const watchForSegmentCreation = () => {
             const options = getOptions();
             if (!options.applyOnCreate) return;
 
-            log('New segment(s) created, auto-applying settings: ' + objectIds.join(', '));
-            objectIds.forEach(id => applySettingsToSegment(id, options));
+            // trackDataModelEvents also replays already-existing segments (e.g. ones just
+            // loaded into view while panning) as "added". Only react to segments the user
+            // actually just drew and hasn't saved yet, or we'd re-apply settings to every
+            // segment in the map.
+            const newIds = objectIds.filter(id => {
+                try {
+                    return wmeSDK.DataModel.isNew({ dataModelName: 'segments', objectId: id });
+                } catch (e) {
+                    log(`Could not check if segment ${id} is new, skipping: ${e}`);
+                    return false;
+                }
+            });
+
+            if (!newIds.length) return;
+
+            log('New segment(s) created, auto-applying settings: ' + newIds.join(', '));
+            newIds.forEach(id => applySettingsToSegment(id, options));
         }
     });
 }
