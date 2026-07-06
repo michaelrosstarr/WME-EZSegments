@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            WME EZSegments
 // @namespace       https://greasyfork.org/en/scripts/518381-wme-ezsegments
-// @version         3.2
+// @version         3.3
 // @description     Easily update roads
 // @author          https://github.com/michaelrosstarr
 // @include 	    /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
@@ -311,11 +311,12 @@ const applySettingsToSegment = (id, options) => {
             }
         }
 
-        // Set street to "None", keeping the segment's existing city if it has one
-        // and only falling back to the empty city if it's genuinely cityless.
+        // Set street to "None". Keeps the segment's existing city if it has one, otherwise
+        // prefers the map's top city (the first/majority city in view), and only falls back
+        // to the fully empty city if there's no city to use at all.
         if (options.setStreet) {
             const address = wmeSDK.DataModel.Segments.getAddress({ segmentId: id });
-            const city = address.city || getEmptyCity();
+            const city = address.city || wmeSDK.DataModel.Cities.getTopCity() || getEmptyCity();
             const street = getEmptyStreet(city.id);
 
             wmeSDK.DataModel.Segments.updateAddress({
