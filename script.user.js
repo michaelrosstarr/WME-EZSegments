@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            WME EZSegments
 // @namespace       https://greasyfork.org/en/scripts/518381-wme-ezsegments
-// @version         3.4
+// @version         3.5
 // @description     Easily update roads
 // @author          https://github.com/michaelrosstarr
 // @include 	    /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
@@ -256,6 +256,113 @@ const getEmptyStreet = (cityId) => {
         || wmeSDK.DataModel.Streets.addStreet({ cityId, streetName: '' });
 }
 
+// A "real" city means it's an actual named city/suburb, not the placeholder WME uses
+// to represent "no city" (which is still a City object, just with isEmpty: true).
+const isRealCity = (city) => !!city && !city.isEmpty;
+
+// Looks at segments directly connected to this one (both directions) and returns the
+// first real city used by one of their addresses. This is how we pick up the correct
+// suburb/city for a segment that doesn't have one of its own yet - based on the roads
+// it's actually attached to, rather than the map's overall "top city".
+const getNeighboringCity = (segmentId) => {
+    for (const reverseDirection of [false, true]) {
+        let connectedSegments;
+        try {
+            connectedSegments = wmeSDK.DataModel.Segments.getConnectedSegments({ segmentId, reverseDirection });
+        } catch (e) {
+            log(`Could not get connected segments (reverseDirection=${reverseDirection}) for segment ${segmentId}: ${e}`);
+            continue;
+        }
+
+        for (const neighbor of connectedSegments) {
+            const neighborAddress = wmeSDK.DataModel.Segments.getAddress({ segmentId: neighbor.id });
+            if (isRealCity(neighborAddress.city)) {
+                return neighborAddress.city;
+            }
+        }
+    }
+
+    return null;
+}
+
+const applyRoadType = (id, seg, options) => {
+    if (options.roadType && seg.roadType !== options.roadType) {
+        wmeSDK.DataModel.Segments.updateSegment({ segmentId: id, roadType: options.roadType });
+    }
+}
+
+const applyLock = (id, options) => {
+    if (!options.setLock) return;
+
+    const rank = wmeSDK.State.getUserInfo().rank;
+    const selectedRoad = roadTypes.find(rt => rt.value === options.roadType);
+    if (!selectedRoad) return;
+
+    const lockSetting = options.locks.find(l => l.id === selectedRoad.id);
+    if (!lockSetting) return;
+
+    let toLock = lockSetting.lock - 1;
+    if (rank < toLock) toLock = rank;
+
+    wmeSDK.DataModel.Segments.updateSegment({ segmentId: id, lockRank: toLock });
+}
+
+const applySpeed = (id, options) => {
+    if (!options.updateSpeed) return;
+
+    const selectedRoad = roadTypes.find(rt => rt.value === options.roadType);
+    if (!selectedRoad) return;
+
+    const speedSetting = options.speeds.find(s => s.id === selectedRoad.id);
+    if (!speedSetting) return;
+
+    const speedValue = parseInt(speedSetting.speed, 10);
+    if (isNaN(speedValue) || speedValue < 0) return;
+
+    wmeSDK.DataModel.Segments.updateSegment({
+        segmentId: id,
+        fwdSpeedLimit: speedValue,
+        revSpeedLimit: speedValue
+    });
+}
+
+// Sets the segment's street to "None". Prefers, in order: the segment's own city, the city
+// used by a connected/neighboring segment (i.e. the actual suburb this road sits in), the
+// map's overall top city, and only then the fully empty city as a last resort.
+const applyEmptyStreet = (id, options) => {
+    if (!options.setStreet) return;
+
+    const address = wmeSDK.DataModel.Segments.getAddress({ segmentId: id });
+    const neighboringCity = isRealCity(address.city) ? null : getNeighboringCity(id);
+    const topCity = wmeSDK.DataModel.Cities.getTopCity();
+    log(`[setStreet] segment ${id}: address.city=${JSON.stringify(address.city)}, neighboringCity=${JSON.stringify(neighboringCity)}, topCity=${JSON.stringify(topCity)}`);
+
+    const city = (isRealCity(address.city) && address.city)
+        || neighboringCity
+        || (isRealCity(topCity) && topCity)
+        || getEmptyCity();
+    log(`[setStreet] segment ${id}: chosen city=${JSON.stringify(city)}`);
+
+    const street = getEmptyStreet(city.id);
+    log(`[setStreet] segment ${id}: chosen street=${JSON.stringify(street)}`);
+
+    wmeSDK.DataModel.Segments.updateAddress({ segmentId: id, primaryStreetId: street.id });
+
+    const newAddress = wmeSDK.DataModel.Segments.getAddress({ segmentId: id });
+    log(`[setStreet] segment ${id}: address after update=${JSON.stringify(newAddress)}`);
+}
+
+// Unpaved, via the real segment flag attribute (idempotent - always sets it true,
+// unlike the old DOM-click hack which just toggled whatever the current state was).
+const applyUnpaved = (id, seg, options) => {
+    if (options.unpaved && !seg.flagAttributes.unpaved) {
+        wmeSDK.DataModel.Segments.updateSegment({
+            segmentId: id,
+            flagAttributes: { unpaved: true }
+        });
+    }
+}
+
 // Applies the configured options to a single segment. Shared by the manual
 // "Quick Set Road" trigger (button/shortcut) and the auto-apply-on-create watcher.
 const applySettingsToSegment = (id, options) => {
@@ -268,80 +375,11 @@ const applySettingsToSegment = (id, options) => {
         const seg = wmeSDK.DataModel.Segments.getById({ segmentId: id });
         if (!seg) return;
 
-        // Road Type
-        if (options.roadType && seg.roadType !== options.roadType) {
-            wmeSDK.DataModel.Segments.updateSegment({ segmentId: id, roadType: options.roadType });
-        }
-
-        // Set lock if enabled
-        if (options.setLock) {
-            const rank = wmeSDK.State.getUserInfo().rank;
-            const selectedRoad = roadTypes.find(rt => rt.value === options.roadType);
-            if (selectedRoad) {
-                const lockSetting = options.locks.find(l => l.id === selectedRoad.id);
-                if (lockSetting) {
-                    let toLock = lockSetting.lock - 1;
-                    if (rank < toLock) toLock = rank;
-
-                    wmeSDK.DataModel.Segments.updateSegment({
-                        segmentId: id,
-                        lockRank: toLock
-                    });
-                }
-            }
-        }
-
-        // Speed Limit - use road-specific speed if updateSpeed is enabled
-        if (options.updateSpeed) {
-            const selectedRoad = roadTypes.find(rt => rt.value === options.roadType);
-            if (selectedRoad) {
-                const speedSetting = options.speeds.find(s => s.id === selectedRoad.id);
-
-                if (speedSetting) {
-                    const speedValue = parseInt(speedSetting.speed, 10);
-
-                    if (!isNaN(speedValue) && speedValue >= 0) {
-                        wmeSDK.DataModel.Segments.updateSegment({
-                            segmentId: id,
-                            fwdSpeedLimit: speedValue,
-                            revSpeedLimit: speedValue
-                        });
-                    }
-                }
-            }
-        }
-
-        // Set street to "None". Keeps the segment's existing city if it has one, otherwise
-        // prefers the map's top city (the first/majority city in view), and only falls back
-        // to the fully empty city if there's no city to use at all.
-        if (options.setStreet) {
-            const address = wmeSDK.DataModel.Segments.getAddress({ segmentId: id });
-            const topCity = wmeSDK.DataModel.Cities.getTopCity();
-            log(`[setStreet] segment ${id}: address.city=${JSON.stringify(address.city)}, topCity=${JSON.stringify(topCity)}`);
-
-            const city = address.city || topCity || getEmptyCity();
-            log(`[setStreet] segment ${id}: chosen city=${JSON.stringify(city)}`);
-
-            const street = getEmptyStreet(city.id);
-            log(`[setStreet] segment ${id}: chosen street=${JSON.stringify(street)}`);
-
-            wmeSDK.DataModel.Segments.updateAddress({
-                segmentId: id,
-                primaryStreetId: street.id
-            });
-
-            const newAddress = wmeSDK.DataModel.Segments.getAddress({ segmentId: id });
-            log(`[setStreet] segment ${id}: address after update=${JSON.stringify(newAddress)}`);
-        }
-
-        // Unpaved, via the real segment flag attribute (idempotent - always sets it true,
-        // unlike the old DOM-click hack which just toggled whatever the current state was).
-        if (options.unpaved && !seg.flagAttributes.unpaved) {
-            wmeSDK.DataModel.Segments.updateSegment({
-                segmentId: id,
-                flagAttributes: { unpaved: true }
-            });
-        }
+        applyRoadType(id, seg, options);
+        applyLock(id, options);
+        applySpeed(id, options);
+        applyEmptyStreet(id, options);
+        applyUnpaved(id, seg, options);
     } catch (e) {
         log(`Failed to apply settings to segment ${id}: ${e}`);
     }

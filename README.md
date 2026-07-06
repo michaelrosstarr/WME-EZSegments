@@ -4,6 +4,12 @@ An easy way to update segments in WME (Waze Map Editor).
 
 ## Changelogs
 
+### Version 3.5
+```diff
++ "Set Street To None" now falls back to the city used by a connected/neighboring segment (the actual suburb the road is in) before falling back to the map's overall top city
+~ Fixed a bug where a segment's "empty" city placeholder (a real City object with isEmpty: true, not null) was being treated as a real city, so the top-city/suburb fallback never ran
+```
+
 ### Version 3.4
 ```diff
 + Added console debugging logs around the "Set Street To None" city/street resolution to help diagnose reports of the top city not being picked up
