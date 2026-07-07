@@ -4,6 +4,17 @@ An easy way to update segments in WME (Waze Map Editor).
 
 ## Changelogs
 
+### Version 3.12
+```diff
+~ Restored the "chip" style control fallback (`.w-icon-unpaved-fill` / `wz-checkable-chip`) from the known-working v2.1 implementation, tried before the current checkbox-based control, in case the older WME UI element is what's present
+```
+
+### Version 3.11
+```diff
+~ "Set Road as Unpaved" now clicks the actual "Unpaved" checkbox in the edit panel instead of calling `updateSegment`'s flagAttributes - the SDK call updated local state (and the UI) fine but didn't reliably survive a save on a brand-new segment. Only clicks when the checkbox is currently unchecked, so it stays idempotent
+- Removed the `applyUnpaved` per-segment SDK call from `applySettingsToSegment`; it now runs once per selection (via the open panel's checkbox) after the rest of the per-segment attributes are applied
+```
+
 ### Version 3.10
 ```diff
 ~ Reverted the 3.9 change - sending `tunnel`/`headlights`/`nearbyHOV` alongside `unpaved` threw `InvalidStateError: Not allowed to update headlights` on road types that don't support that flag (e.g. Street). `flagAttributes` is per-key optional, so only `unpaved` is sent again; the "not sticking" symptom needs a different root cause
