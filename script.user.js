@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            WME EZSegments
 // @namespace       https://greasyfork.org/en/scripts/518381-wme-ezsegments
-// @version         3.7
+// @version         3.8
 // @description     Easily update roads
 // @author          https://github.com/michaelrosstarr
 // @include 	    /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
@@ -48,7 +48,6 @@ const defaultOptions = {
     roadType: 1,
     unpaved: false,
     setStreet: false,
-    autosave: false,
     applyOnCreate: false,
     setLock: false,
     updateSpeed: false,
@@ -140,7 +139,7 @@ const autoAppliedSegmentIds = new Set();
 
 // If "Auto-Apply Settings When a Segment is Created" is on, and the segment(s) just
 // selected are genuinely new (unsaved) and haven't been auto-applied yet, apply the
-// same settings (and respect the autosave toggle) as the manual "Quick Set Road" flow.
+// same settings as the manual "Quick Set Road" flow.
 const maybeAutoApplyOnCreate = () => {
     const options = getOptions();
     if (!options.applyOnCreate) return;
@@ -164,10 +163,6 @@ const maybeAutoApplyOnCreate = () => {
 
     log('New segment(s) selected, auto-applying settings: ' + newIds.join(', '));
     newIds.forEach(id => applySettingsToSegment(id, options));
-
-    if (options.autosave) {
-        wmeSDK.Editing.save().then(() => { });
-    }
 }
 
 // Injects the "Quick Set Road" button into the segment edit panel, and triggers
@@ -413,11 +408,6 @@ const handleUpdate = () => {
     const options = getOptions();
     log('Options at time of update: ' + JSON.stringify(options));
     selection.ids.forEach(id => applySettingsToSegment(id, options));
-
-    // Autosave
-    if (options.autosave) {
-        wmeSDK.Editing.save().then(() => { });
-    }
 }
 
 const constructSettings = () => {
@@ -472,7 +462,6 @@ const constructSettings = () => {
     // Checkbox option definitions
     const checkboxOptions = [
         { id: 'setStreet', text: 'Set Street To None', key: 'setStreet' },
-        { id: 'autosave', text: 'Autosave on Action', key: 'autosave' },
         { id: 'unpaved', text: 'Set Road as Unpaved', key: 'unpaved' },
         { id: 'setLock', text: 'Set the lock to the level', key: 'setLock' },
         { id: 'updateSpeed', text: 'Update speed limits', key: 'updateSpeed' },
