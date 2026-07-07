@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            WME EZSegments
 // @namespace       https://greasyfork.org/en/scripts/518381-wme-ezsegments
-// @version         4.3
+// @version         4.4
 // @description     Easily update roads
 // @author          https://github.com/michaelrosstarr
 // @include 	    /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
@@ -214,7 +214,22 @@ const maybeAutoApplyOnCreate = () => {
 
     log('New segment(s) selected, auto-applying settings: ' + newIds.join(', '));
     newIds.forEach(id => applySettingsToSegment(id, options));
-    safelyApply(newIds.join(','), 'unpaved', () => applyUnpaved(options));
+
+    // The unpaved control lives in the shared edit panel and toggles unpaved for
+    // whatever's currently selected as a whole. That's fine when the selection is
+    // exactly the new segment(s), but WME sometimes keeps an already-existing segment
+    // selected alongside a newly-drawn one (e.g. the segment it was drawn/split from) -
+    // clicking the shared control there would incorrectly mark that existing segment
+    // as unpaved too. In that mixed case, set the flag directly via the SDK instead,
+    // scoped to just the new segment(s) - less reliable surviving a save than the real
+    // click (see applyUnpaved's comment), but it can never touch a segment it shouldn't.
+    if (newIds.length === selection.ids.length) {
+        safelyApply(newIds.join(','), 'unpaved', () => applyUnpaved(options));
+    } else if (options.unpaved) {
+        log(`Selection includes existing segment(s) alongside new one(s) (${newIds.join(', ')}) - setting unpaved via SDK instead of the shared panel control so they aren't affected`);
+        newIds.forEach(id => safelyApply(id, 'unpaved (fallback)', () =>
+            wmeSDK.DataModel.Segments.updateSegment({ segmentId: id, flagAttributes: { unpaved: true } })));
+    }
 }
 
 // Injects the "Quick Set Road" button into the segment edit panel, and triggers

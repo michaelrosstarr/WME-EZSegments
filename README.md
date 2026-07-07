@@ -4,6 +4,11 @@ An easy way to update segments in WME (Waze Map Editor).
 
 ## Changelogs
 
+### Version 4.4
+```diff
+~ Fixed "Auto-Apply Settings When a Segment is Created" marking an already-existing, already-selected segment as unpaved too - the unpaved control lives in the shared edit panel and toggles unpaved for the whole current selection, but WME sometimes keeps an existing segment selected alongside a newly-drawn one (e.g. the segment it was drawn/split from). Auto-apply now only clicks that shared control when the selection is exactly the new segment(s); otherwise it sets the unpaved flag directly via the SDK, scoped to just the new segment(s), so existing segments are never touched. Road type/lock/speed/street were unaffected since they already update by segment id
+```
+
 ### Version 4.3
 ```diff
 ~ Fixed "Set Road as Unpaved" not being applied when "Auto-Apply Settings When a Segment is Created" is on - WME builds the edit panel's outer container first and fills in the unpaved chip/checkbox a moment later, so the auto-apply hook (which runs the instant the container appears) could lose that race and find nothing to click. Manual "Quick Set Road" never showed this since a human always clicks well after the panel finishes rendering. `applyUnpaved` now retries for up to ~3 seconds against the same captured panel element before giving up
