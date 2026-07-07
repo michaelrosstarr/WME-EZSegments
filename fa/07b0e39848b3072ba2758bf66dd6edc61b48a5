@@ -1,0 +1,14 @@
+script.user.js
+  h_497f9c6e467496 4,541
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "fa07b0e39848b3072ba2758bf66dd6edc61b48a5",
+  "prompts": {},
+  "humans": {
+    "h_497f9c6e467496": {
+      "author": "Michael Ross Tarr <mrmrmtarr@gmail.com>"
+    }
+  }
+}
