@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            WME EZSegments
 // @namespace       https://greasyfork.org/en/scripts/518381-wme-ezsegments
-// @version         3.10
+// @version         3.11
 // @description     Easily update roads
 // @author          https://github.com/michaelrosstarr
 // @include 	    /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
@@ -163,6 +163,7 @@ const maybeAutoApplyOnCreate = () => {
 
     log('New segment(s) selected, auto-applying settings: ' + newIds.join(', '));
     newIds.forEach(id => applySettingsToSegment(id, options));
+    safelyApply(newIds.join(','), 'unpaved', () => applyUnpaved(options));
 }
 
 // Injects the "Quick Set Road" button into the segment edit panel, and triggers
@@ -351,18 +352,26 @@ const applyEmptyStreet = (id, options) => {
     log(`[setStreet] segment ${id}: address after update=${JSON.stringify(newAddress)}`);
 }
 
-// Unpaved, via the real segment flag attribute (idempotent - always sets it true,
-// unlike the old DOM-click hack which just toggled whatever the current state was).
-const applyUnpaved = (id, seg, options) => {
-    if (options.unpaved && !seg.flagAttributes.unpaved) {
-        // Only send unpaved - headlights/nearbyHOV are restricted to certain road
-        // types (e.g. not allowed on a plain Street) and including them unconditionally
-        // throws InvalidStateError on segments where they don't apply.
-        wmeSDK.DataModel.Segments.updateSegment({
-            segmentId: id,
-            flagAttributes: { unpaved: true }
-        });
+// Unpaved, via a real click on the edit panel's checkbox rather than the SDK's
+// updateSegment flagAttributes call - that call reliably updates local state (and
+// the UI reflects it) but doesn't always survive a save for a brand-new segment.
+// Clicking through the actual control goes through WME's own handling instead.
+// Only clicks when currently unchecked, since clicking again would toggle it back off.
+const applyUnpaved = (options) => {
+    if (!options.unpaved || !openPanel) return;
+
+    const wzCheckbox = openPanel.querySelector('wz-checkbox[name="unpaved"]');
+    if (!wzCheckbox) {
+        log('Could not find unpaved checkbox in panel');
+        return;
     }
+
+    const input = wzCheckbox.querySelector('input[type="checkbox"][name="unpaved"]');
+    const isChecked = wzCheckbox.hasAttribute('checked') || input?.checked;
+    if (isChecked) return;
+
+    (input || wzCheckbox).click();
+    log('Clicked unpaved checkbox');
 }
 
 // Runs a single attribute update for a segment, in isolation - if it throws (e.g. a
@@ -398,7 +407,6 @@ const applySettingsToSegment = (id, options) => {
     safelyApply(id, 'lock', () => applyLock(id, options));
     safelyApply(id, 'speed', () => applySpeed(id, options));
     safelyApply(id, 'street', () => applyEmptyStreet(id, options));
-    safelyApply(id, 'unpaved', () => applyUnpaved(id, seg, options));
 }
 
 const handleUpdate = () => {
@@ -411,6 +419,7 @@ const handleUpdate = () => {
     const options = getOptions();
     log('Options at time of update: ' + JSON.stringify(options));
     selection.ids.forEach(id => applySettingsToSegment(id, options));
+    safelyApply(selection.ids.join(','), 'unpaved', () => applyUnpaved(options));
 }
 
 const constructSettings = () => {
