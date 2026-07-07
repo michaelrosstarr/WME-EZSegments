@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            WME EZSegments
 // @namespace       https://greasyfork.org/en/scripts/518381-wme-ezsegments
-// @version         4.4
+// @version         4.5
 // @description     Easily update roads
 // @author          https://github.com/michaelrosstarr
 // @include 	    /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
@@ -200,12 +200,32 @@ const maybeAutoApplyOnCreate = () => {
 
     const newIds = selection.ids.filter(id => {
         if (autoAppliedSegmentIds.has(id)) return false;
+
         try {
-            return wmeSDK.DataModel.isNew({ dataModelName: 'segments', objectId: id });
+            if (!wmeSDK.DataModel.isNew({ dataModelName: 'segments', objectId: id })) return false;
         } catch (e) {
             log(`Could not check if segment ${id} is new, skipping: ${e}`);
             return false;
         }
+
+        // Drawing a new road that starts/ends/passes through an existing segment makes
+        // WME split that existing segment into two pieces as a side effect. Both split
+        // pieces are themselves unsaved ("new") until the save completes, exactly like
+        // the genuinely new segment the user just drew - so `isNew` alone can't tell
+        // them apart, and without this check we'd apply settings to the split remnants
+        // of an already-mapped road too. Split remnants keep the original segment's
+        // address (isEmpty: false); a freshly drawn segment always starts with none.
+        try {
+            const address = wmeSDK.DataModel.Segments.getAddress({ segmentId: id });
+            if (address && !address.isEmpty) {
+                log(`Segment ${id} is new but already has an address - likely a split remnant of an existing road, skipping auto-apply`);
+                return false;
+            }
+        } catch (e) {
+            log(`Could not check address for segment ${id}, proceeding: ${e}`);
+        }
+
+        return true;
     });
 
     if (!newIds.length) return;

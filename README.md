@@ -4,6 +4,11 @@ An easy way to update segments in WME (Waze Map Editor).
 
 ## Changelogs
 
+### Version 4.5
+```diff
+~ Fixed "Auto-Apply Settings When a Segment is Created" also applying settings to the existing segment a new road splits when drawn into/through it - WME splits that segment into two pieces as a side effect of the draw, and both pieces report as unsaved ("new") just like the genuinely new segment, so `isNew` alone couldn't tell them apart. Now also checks the segment's address: split remnants keep the original road's address, while a freshly drawn segment always starts with none, so remnants are excluded from auto-apply
+```
+
 ### Version 4.4
 ```diff
 ~ Fixed "Auto-Apply Settings When a Segment is Created" marking an already-existing, already-selected segment as unpaved too - the unpaved control lives in the shared edit panel and toggles unpaved for the whole current selection, but WME sometimes keeps an existing segment selected alongside a newly-drawn one (e.g. the segment it was drawn/split from). Auto-apply now only clicks that shared control when the selection is exactly the new segment(s); otherwise it sets the unpaved flag directly via the SDK, scoped to just the new segment(s), so existing segments are never touched. Road type/lock/speed/street were unaffected since they already update by segment id
