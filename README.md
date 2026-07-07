@@ -4,6 +4,11 @@ An easy way to update segments in WME (Waze Map Editor).
 
 ## Changelogs
 
+### Version 3.9
+```diff
+~ Fixed "Set Road as Unpaved" not sticking - `updateSegment`'s flagAttributes isn't merged with the segment's existing flags, so sending only `{ unpaved: true }` was clobbering `tunnel`/`headlights`/`nearbyHOV` back to falsy instead of leaving them alone. Now sends all four, preserving the segment's current values for the other three
+```
+
 ### Version 3.8
 ```diff
 - Removed the "Autosave on Action" option and all automatic `Editing.save()` calls (both from "Quick Set Road" and "Auto-Apply Settings When a Segment is Created") - saving is left entirely to the editor now
