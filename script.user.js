@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            WME EZSegments
 // @namespace       https://greasyfork.org/en/scripts/518381-wme-ezsegments
-// @version         4.2
+// @version         4.3
 // @description     Easily update roads
 // @author          https://github.com/michaelrosstarr
 // @include 	    /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
@@ -411,10 +411,18 @@ const applyEmptyStreet = (id, options) => {
 // then falls back to the checkbox used by the current WME UI. Only clicks when
 // currently unchecked (v2.1 didn't guard this, which could toggle it back off if
 // triggered more than once, e.g. on a multi-segment selection).
-const applyUnpaved = (options) => {
-    if (!options.unpaved || !openPanel) return;
+//
+// WME builds the edit panel's outer container first and fills in its inner controls
+// (this chip/checkbox included) a moment later. The manual "Quick Set Road" flow never
+// notices, since a human always clicks well after that finishes - but the auto-apply-on-
+// create hook runs the instant the container appears, so it can lose that race and find
+// nothing to click. Retry for a bit against the same captured panel element (not the
+// module-level `openPanel`, which may have already moved on to a different selection)
+// before giving up.
+const applyUnpaved = (options, panel = openPanel, attempt = 0) => {
+    if (!options.unpaved || !panel) return;
 
-    const unpavedIcon = openPanel.querySelector('.w-icon-unpaved-fill');
+    const unpavedIcon = panel.querySelector('.w-icon-unpaved-fill');
     const unpavedChip = unpavedIcon?.closest('wz-checkable-chip');
     if (unpavedChip) {
         unpavedChip.click();
@@ -422,7 +430,7 @@ const applyUnpaved = (options) => {
         return;
     }
 
-    const wzCheckbox = openPanel.querySelector('wz-checkbox[name="unpaved"]');
+    const wzCheckbox = panel.querySelector('wz-checkbox[name="unpaved"]');
     if (wzCheckbox) {
         const input = wzCheckbox.querySelector('input[type="checkbox"][name="unpaved"]');
         const isChecked = wzCheckbox.hasAttribute('checked') || input?.checked;
@@ -433,7 +441,13 @@ const applyUnpaved = (options) => {
         return;
     }
 
-    log('Could not toggle unpaved setting - no compatible elements found');
+    const MAX_ATTEMPTS = 15; // ~3s at 200ms apart
+    if (attempt < MAX_ATTEMPTS && panel.isConnected) {
+        setTimeout(() => safelyApply('unpaved (retry)', 'unpaved', () => applyUnpaved(options, panel, attempt + 1)), 200);
+        return;
+    }
+
+    log('Could not toggle unpaved setting - no compatible elements found' + (attempt ? ` after ${attempt} retries` : ''));
 }
 
 // Runs a single attribute update for a segment, in isolation - if it throws (e.g. a

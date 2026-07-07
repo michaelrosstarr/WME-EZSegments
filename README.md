@@ -4,6 +4,16 @@ An easy way to update segments in WME (Waze Map Editor).
 
 ## Changelogs
 
+### Version 4.3
+```diff
+~ Fixed "Set Road as Unpaved" not being applied when "Auto-Apply Settings When a Segment is Created" is on - WME builds the edit panel's outer container first and fills in the unpaved chip/checkbox a moment later, so the auto-apply hook (which runs the instant the container appears) could lose that race and find nothing to click. Manual "Quick Set Road" never showed this since a human always clicks well after the panel finishes rendering. `applyUnpaved` now retries for up to ~3 seconds against the same captured panel element before giving up
+```
+
+### Version 4.2
+```diff
+~ Fixed `TypeError: can't access property "then", window.SDK_INITIALIZED is undefined` on load - removing the `@grant none` line in 4.0 (to add `@grant GM_xmlhttpRequest` for the update check) made the userscript manager sandbox the script into an isolated `window` that can't see globals the page itself sets, like `SDK_INITIALIZED` from WME's own bootstrap. Restored `@grant none` alongside the specific grants so the script runs unsandboxed in the page context again
+```
+
 ### Version 4.0
 ```diff
 ~ "Set Street To None" city resolution: keeps the segment's own city when it has one, then falls back to the city used by a connected/neighboring segment (the actual suburb the road is in), then the map's overall top city, and only then a fully empty placeholder city as a last resort - fixing earlier bugs where it wiped a segment's existing city and where the "empty" city placeholder was mistaken for a real one. Added console debug logging around this resolution to help diagnose city-related reports
