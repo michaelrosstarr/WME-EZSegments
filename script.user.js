@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            WME EZSegments
 // @namespace       https://greasyfork.org/en/scripts/518381-wme-ezsegments
-// @version         4.0
+// @version         4.1
 // @description     Easily update roads
 // @author          https://github.com/michaelrosstarr
 // @include 	    /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
@@ -538,7 +538,7 @@ const constructSettings = () => {
         { id: 'unpaved', text: 'Set Road as Unpaved', key: 'unpaved' },
         { id: 'setLock', text: 'Set the lock to the level', key: 'setLock' },
         { id: 'updateSpeed', text: 'Update speed limits', key: 'updateSpeed' },
-        { id: 'applyOnCreate', text: 'Auto-Apply Settings When a Segment is Created', key: 'applyOnCreate' }
+        { id: 'applyOnCreate', text: 'Auto-Apply On Create', key: 'applyOnCreate' }
     ];
 
     // Helper function to create radio buttons
