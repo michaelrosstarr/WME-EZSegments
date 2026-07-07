@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            WME EZSegments
 // @namespace       https://greasyfork.org/en/scripts/518381-wme-ezsegments
-// @version         3.9
+// @version         3.10
 // @description     Easily update roads
 // @author          https://github.com/michaelrosstarr
 // @include 	    /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
@@ -355,17 +355,12 @@ const applyEmptyStreet = (id, options) => {
 // unlike the old DOM-click hack which just toggled whatever the current state was).
 const applyUnpaved = (id, seg, options) => {
     if (options.unpaved && !seg.flagAttributes.unpaved) {
-        // updateSegment's flagAttributes isn't merged with the segment's existing
-        // flags - it expects tunnel/unpaved/headlights/nearbyHOV together, so passing
-        // just { unpaved: true } was clobbering the other three back to falsy.
+        // Only send unpaved - headlights/nearbyHOV are restricted to certain road
+        // types (e.g. not allowed on a plain Street) and including them unconditionally
+        // throws InvalidStateError on segments where they don't apply.
         wmeSDK.DataModel.Segments.updateSegment({
             segmentId: id,
-            flagAttributes: {
-                tunnel: seg.flagAttributes.tunnel,
-                unpaved: true,
-                headlights: seg.flagAttributes.headlights,
-                nearbyHOV: seg.flagAttributes.nearbyHOV
-            }
+            flagAttributes: { unpaved: true }
         });
     }
 }

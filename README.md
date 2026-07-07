@@ -4,6 +4,11 @@ An easy way to update segments in WME (Waze Map Editor).
 
 ## Changelogs
 
+### Version 3.10
+```diff
+~ Reverted the 3.9 change - sending `tunnel`/`headlights`/`nearbyHOV` alongside `unpaved` threw `InvalidStateError: Not allowed to update headlights` on road types that don't support that flag (e.g. Street). `flagAttributes` is per-key optional, so only `unpaved` is sent again; the "not sticking" symptom needs a different root cause
+```
+
 ### Version 3.9
 ```diff
 ~ Fixed "Set Road as Unpaved" not sticking - `updateSegment`'s flagAttributes isn't merged with the segment's existing flags, so sending only `{ unpaved: true }` was clobbering `tunnel`/`headlights`/`nearbyHOV` back to falsy instead of leaving them alone. Now sends all four, preserving the segment's current values for the other three
