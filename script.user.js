@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            WME EZSegments
 // @namespace       https://greasyfork.org/en/scripts/518381-wme-ezsegments
-// @version         3.12
+// @version         4.0
 // @description     Easily update roads
 // @author          https://github.com/michaelrosstarr
 // @include 	    /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
@@ -9,8 +9,8 @@
 // @exclude         https://www.waze.com/*/user/*editor/*
 // @grant           GM_getValue
 // @grant           GM_setValue
+// @grant           GM_xmlhttpRequest
 // @icon            https://www.google.com/s2/favicons?sz=64&domain=waze.com
-// @grant           none
 // @license         GNU GPL(v3)
 // @downloadURL     https://update.greasyfork.org/scripts/518381/WME%20EZSegments.user.js
 // @updateURL       https://update.greasyfork.org/scripts/518381/WME%20EZSegments.meta.js
@@ -76,6 +76,55 @@ const log = (message) => {
 // falling back to our hardcoded label if the lookup isn't available for some reason.
 const roadTypeName = (roadType) => roadTypeLocalizedNames[roadType.value] || roadType.name;
 
+// Compares dotted version strings (e.g. "3.9" vs "3.10") segment by segment as
+// numbers, since a plain string/parseFloat compare gets "3.10" < "3.9" wrong.
+const isNewerVersion = (remote, local) => {
+    const r = remote.split('.').map(Number);
+    const l = local.split('.').map(Number);
+    for (let i = 0; i < Math.max(r.length, l.length); i++) {
+        const rv = r[i] || 0;
+        const lv = l[i] || 0;
+        if (rv !== lv) return rv > lv;
+    }
+    return false;
+}
+
+let latestVersion = null;
+
+// Puts an "update available" notice in the settings tab, if it's been rendered yet.
+// Safe to call before the tab exists (e.g. from the update check resolving early) -
+// it just no-ops until constructSettings() calls it again once the tab is built.
+const renderUpdateNotice = () => {
+    const el = document.getElementById('ezroads-update-notice');
+    if (!el || !latestVersion) return;
+
+    el.style.display = 'block';
+    el.innerHTML = `A new version (v${latestVersion}) is available - <a href="https://greasyfork.org/en/scripts/518381-wme-ezsegments" target="_blank" rel="noopener">update now</a>`;
+}
+
+// Fetches the Greasyfork update metadata (just the userscript header block) and
+// compares its @version against the running one. Uses GM_xmlhttpRequest rather than
+// fetch() so it isn't subject to WME's page CSP.
+const checkForUpdate = () => {
+    if (typeof GM_xmlhttpRequest !== 'function') return;
+
+    GM_xmlhttpRequest({
+        method: 'GET',
+        url: 'https://update.greasyfork.org/scripts/518381/WME%20EZSegments.meta.js',
+        onload: (response) => {
+            const match = response.responseText.match(/@version\s+([\d.]+)/);
+            if (!match) return;
+
+            if (isNewerVersion(match[1], ScriptVersion)) {
+                latestVersion = match[1];
+                log(`New version available: ${latestVersion} (current: ${ScriptVersion})`);
+                renderUpdateNotice();
+            }
+        },
+        onerror: (e) => log('Update check failed: ' + e)
+    });
+}
+
 window.SDK_INITIALIZED.then(initScript);
 
 function initScript() {
@@ -129,6 +178,7 @@ const WME_EZRoads_init = () => {
     observeEditPanel();
     registerQuickSetShortcut();
     constructSettings();
+    checkForUpdate();
 
     log("Completed Init")
 }
@@ -606,8 +656,12 @@ const constructSettings = () => {
             <h2>EZ Segments</h2>
             <div>Current Version: <b>${ScriptVersion}</b></div>
             <div>Update Keybind: <kbd>u</kbd></div>
+            <div id="ezroads-update-notice" style="display: none; margin-top: 5px; color: #f44336; font-weight: bold;"></div>
         </div>`);
         scriptContentPane.append(header);
+
+        // In case the update check already resolved before this tab was built
+        renderUpdateNotice();
 
         // Road type and options header
         const roadTypeHeader = $(`<div class="ezroads-section">
